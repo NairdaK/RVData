@@ -47,51 +47,67 @@ class CARMENESRV2(RV2):
 
     instrument_name = "CARMENES"
 
-    def _read(self, hdul: fits.HDUList, **kwargs) -> None:
+    def _read(self, hdul1: fits.HDUList, **kwargs) -> None:
         """
         Populate this RVData Level 2 object from a native CARMENES FITS file.
 
         Parameters
         ----------
-        hdul : fits.HDUList
+        hdul1 : fits.HDUList
             Open CARMENES FITS HDU list passed in by ``RVDataModel.read``.
         **kwargs
             Reserved for auxiliary files or conversion options.
         """
+        
+        l0file = kwargs.get("l0file")  # here the raw file can be provided if needed (to be decided)
 
-        self._validate_input(hdul, **kwargs)
-        self._populate_instrument_header(hdul)
-        self._populate_trace_extensions(hdul, **kwargs)
+        if l0file is not None:
+            with fits.open(l0file, memmap=False) as hdul0:
+                self._populate_optional_extensions(hdul1, hdul0=hdul0, **kwargs)
+        else:
+            self._populate_optional_extensions(hdul1, hdul0=None, **kwargs)
+
+
+        self._validate_input(hdul1, **kwargs)
+        self._populate_instrument_header(hdul1)
+        self._populate_trace_extensions(hdul1, **kwargs)
         self._populate_order_table()
-        self._populate_barycentric_extensions(hdul, **kwargs)
-        self._populate_optional_extensions(hdul, **kwargs)
-        self._populate_primary_header(hdul, **kwargs)
+        self._populate_barycentric_extensions(hdul1, **kwargs)
+        self._populate_optional_extensions(hdul1, **kwargs)
+        self._populate_primary_header(hdul1, **kwargs)
         self._populate_extension_descriptions()
 
     # ------------------------------------------------------------------
     # High-level translation steps
 
-    def _validate_input(self, hdul: fits.HDUList, **kwargs) -> None:
-        """Validate that the input looks like a CARMENES product."""
+    def _validate_input(self, hdul1: fits.HDUList, **kwargs) -> None:
+        """Validate that the input looks like a CARMENES product, and find out, whether it is a VIS or a NIR file."""
 
-        if "PRIMARY" not in hdul:
+        if "PRIMARY" not in hdul1:
             raise ValueError("CARMENES input must contain a PRIMARY HDU.")
+        
+        self.channel = hdul1["PRIMARY"].header["SUBSYS"]
+        if self.channel not in ("vis", "nir"):
+            raise ValueError("CARMENES channel must be either 'vis' or 'nir'; "
+                f"got {self.channel!r}."
+    )
+        
 
-    def _populate_instrument_header(self, hdul: fits.HDUList) -> None:
+    def _populate_instrument_header(self, hdul1: fits.HDUList) -> None:
         """Store the native primary header as ``INSTRUMENT_HEADER``."""
 
-        self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul["PRIMARY"].header))
+        self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
 
-    def _populate_trace_extensions(self, hdul: fits.HDUList, **kwargs) -> None:
+    def _populate_trace_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
         """Populate ``TRACEi_FLUX/WAVE/VAR/BLAZE`` image extensions."""
 
-        for trace_spec in self._trace_specs(hdul, **kwargs):
+        for trace_spec in self._trace_specs(hdul1, **kwargs):
             trace_index = trace_spec["trace_index"]
             out_prefix = f"TRACE{trace_index}_"
 
-            flux_data, flux_header = self._read_image_hdu(hdul, trace_spec["flux"])
-            wave_data, wave_header = self._read_image_hdu(hdul, trace_spec["wave"])
-            var_data, var_header = self._read_image_hdu(hdul, trace_spec["var"])
+            flux_data, flux_header = self._read_image_hdu(hdul1, trace_spec["flux"])
+            wave_data, wave_header = self._read_image_hdu(hdul1, trace_spec["wave"])
+            var_data, var_header = self._read_image_hdu(hdul1, trace_spec["var"])
 
             blaze_ext = trace_spec.get("blaze")
             if blaze_ext is None:
@@ -100,7 +116,7 @@ class CARMENESRV2(RV2):
                     {"COMMENT": "Placeholder blaze; replace with CARMENES blaze data."}
                 )
             else:
-                blaze_data, blaze_header = self._read_image_hdu(hdul, blaze_ext)
+                blaze_data, blaze_header = self._read_image_hdu(hdul1, blaze_ext)
 
             self._set_or_create_image(out_prefix + "FLUX", flux_data, flux_header)
             self._set_or_create_image(out_prefix + "WAVE", wave_data, wave_header)
@@ -128,7 +144,7 @@ class CARMENESRV2(RV2):
         self.set_data("ORDER_TABLE", order_table)
 
     def _populate_barycentric_extensions(
-        self, hdul: fits.HDUList, **kwargs
+        self, hdul1: fits.HDUList, **kwargs
     ) -> None:
         """Populate barycentric correction and BJD extensions."""
 
@@ -137,7 +153,7 @@ class CARMENESRV2(RV2):
             "BARYCORR_Z, and BJD_TDB."
         )
 
-    def _populate_optional_extensions(self, hdul: fits.HDUList, **kwargs) -> None:
+    def _populate_optional_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
         """
         Populate optional RVData L2 extensions when CARMENES products provide them.
 
@@ -146,7 +162,7 @@ class CARMENESRV2(RV2):
         ``TRACEi_DRIFT``, ``TRACEi_TELLURIC``, and ``TRACEi_SKY``.
         """
 
-    def _populate_primary_header(self, hdul: fits.HDUList, **kwargs) -> None:
+    def _populate_primary_header(self, hdul1: fits.HDUList, **kwargs) -> None:
         """Populate the standardized RVData primary header."""
 
         raise NotImplementedError(
@@ -187,7 +203,7 @@ class CARMENESRV2(RV2):
     # ------------------------------------------------------------------
     # Instrument-specific hooks to fill in
 
-    def _trace_specs(self, hdul: fits.HDUList, **kwargs) -> list[dict[str, object]]:
+    def _trace_specs(self, hdul1: fits.HDUList, **kwargs) -> list[dict[str, object]]:
         """
         Return native HDU mappings for each output trace.
 
@@ -226,19 +242,19 @@ class CARMENESRV2(RV2):
     # Small helpers
 
     @staticmethod
-    def _require_hdu(hdul: fits.HDUList, ext_name: str):
+    def _require_hdu(hdul1: fits.HDUList, ext_name: str):
         """Return an HDU or raise a helpful error if it is missing."""
 
-        if ext_name not in hdul:
+        if ext_name not in hdul1:
             raise KeyError(f"Required CARMENES HDU '{ext_name}' not found.")
-        return hdul[ext_name]
+        return hdul1[ext_name]
 
     def _read_image_hdu(
-        self, hdul: fits.HDUList, ext_name: str
+        self, hdul1: fits.HDUList, ext_name: str
     ) -> tuple[np.ndarray, fits.Header]:
         """Read an image HDU's data and header."""
 
-        hdu = self._require_hdu(hdul, ext_name)
+        hdu = self._require_hdu(hdul1, ext_name)
         if hdu.data is None:
             raise ValueError(f"CARMENES HDU '{ext_name}' has no data.")
         return np.asarray(hdu.data), hdu.header
