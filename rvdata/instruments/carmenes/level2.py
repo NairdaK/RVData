@@ -29,8 +29,8 @@ class CARMENESRV2(RV2):
 
     Expected implementation areas
     -----------------------------
-    - ``_trace_specs``: define native flux/wavelength/variance/blaze HDU names
-      and output trace numbers.
+    - ``_trace_spec``: define native flux/wavelength/variance/blaze HDU names
+      for the science trace.
     - ``_populate_barycentric_extensions``: fill ``BARYCORR_KMS``,
       ``BARYCORR_Z``, and ``BJD_TDB``.
     - ``_populate_primary_header``: map the CARMENES primary header to the
@@ -58,14 +58,6 @@ class CARMENESRV2(RV2):
         **kwargs
             Reserved for auxiliary files or conversion options.
         """
-        
-        l0file = kwargs.get("l0file")  # here the raw file can be provided if needed (to be decided)
-
-        if l0file is not None:
-            with fits.open(l0file, memmap=False) as hdul0:
-                self._populate_optional_extensions(hdul1, hdul0=hdul0, **kwargs)
-        else:
-            self._populate_optional_extensions(hdul1, hdul0=None, **kwargs)
 
 
         self._validate_input(hdul1, **kwargs)
@@ -73,7 +65,15 @@ class CARMENESRV2(RV2):
         self._populate_trace_extensions(hdul1, **kwargs)
         self._populate_order_table()
         self._populate_barycentric_extensions(hdul1, **kwargs)
-        self._populate_optional_extensions(hdul1, **kwargs)
+
+        l0file = kwargs.get("l0file")  # here the raw file can be provided if needed (to be decided)
+
+        if l0file is not None:
+            with fits.open(l0file, memmap=False) as hdul0:
+                self._populate_optional_extensions(hdul1, hdul0=hdul0, **kwargs)
+        else:
+            self._populate_optional_extensions(hdul1, hdul0=None, **kwargs)
+            
         self._populate_primary_header(hdul1, **kwargs)
         self._populate_extension_descriptions()
 
@@ -86,10 +86,14 @@ class CARMENESRV2(RV2):
         if "PRIMARY" not in hdul1:
             raise ValueError("CARMENES input must contain a PRIMARY HDU.")
         
-        self.channel = hdul1["PRIMARY"].header["SUBSYS"]
+        self.channel = str(hdul1["PRIMARY"].header.get("SUBSYS", "")).lower()
         if self.channel not in ("vis", "nir"):
             raise ValueError("CARMENES channel must be either 'vis' or 'nir'; "
                 f"got {self.channel!r}."
+        
+        # One should probably provide here the info on, which fiber is being provided (A or B, sci or cal)
+        # for now fiber A (sci)
+        self.trace_type = 'sci'
     )
         
 
@@ -99,29 +103,31 @@ class CARMENESRV2(RV2):
         self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
 
     def _populate_trace_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
-        """Populate ``TRACEi_FLUX/WAVE/VAR/BLAZE`` image extensions."""
+        """Populate ``TRACE1_FLUX/WAVE/VAR/BLAZE`` image extensions."""
 
-        for trace_spec in self._trace_specs(hdul1, **kwargs):
-            trace_index = trace_spec["trace_index"]
-            out_prefix = f"TRACE{trace_index}_"
+        trace_spec = self._trace_spec(hdul1, **kwargs)
+        out_prefix = "TRACE1_"
 
-            flux_data, flux_header = self._read_image_hdu(hdul1, trace_spec["flux"])
-            wave_data, wave_header = self._read_image_hdu(hdul1, trace_spec["wave"])
-            var_data, var_header = self._read_image_hdu(hdul1, trace_spec["var"])
+        flux_data, flux_header = self._read_image_hdu(hdul1, trace_spec["flux"])
+        wave_data, wave_header = self._read_image_hdu(hdul1, trace_spec["wave"])
+        var_data, var_header = self._read_image_hdu(hdul1, trace_spec["var"])
 
-            blaze_ext = trace_spec.get("blaze")
-            if blaze_ext is None:
-                blaze_data = np.ones_like(flux_data, dtype=float)
-                blaze_header = fits.Header(
-                    {"COMMENT": "Placeholder blaze; replace with CARMENES blaze data."}
-                )
-            else:
-                blaze_data, blaze_header = self._read_image_hdu(hdul1, blaze_ext)
+        blaze_ext = trace_spec.get("blaze")
+        if blaze_ext is None:
+            blaze_data = np.ones_like(flux_data, dtype=float)
+            blaze_header = fits.Header()
+            blaze_header["BLZNORM"] = (True, "Blaze is normalized")
+            blaze_header["BLAZESRC"] = (
+                "NONE",
+                "No native blaze provided; array set to unity",
+            )
+        else:
+            blaze_data, blaze_header = self._read_image_hdu(hdul1, blaze_ext)
 
-            self._set_or_create_image(out_prefix + "FLUX", flux_data, flux_header)
-            self._set_or_create_image(out_prefix + "WAVE", wave_data, wave_header)
-            self._set_or_create_image(out_prefix + "VAR", var_data, var_header)
-            self._set_or_create_image(out_prefix + "BLAZE", blaze_data, blaze_header)
+        self._set_or_create_image(out_prefix + "FLUX", flux_data, flux_header)
+        self._set_or_create_image(out_prefix + "WAVE", wave_data, wave_header)
+        self._set_or_create_image(out_prefix + "VAR", var_data, var_header)
+        self._set_or_create_image(out_prefix + "BLAZE", blaze_data, blaze_header)
 
     def _populate_order_table(self, wave_ext: str = "TRACE1_WAVE") -> None:
         """Build ``ORDER_TABLE`` from a populated wavelength extension."""
@@ -203,13 +209,12 @@ class CARMENESRV2(RV2):
     # ------------------------------------------------------------------
     # Instrument-specific hooks to fill in
 
-    def _trace_specs(self, hdul1: fits.HDUList, **kwargs) -> list[dict[str, object]]:
+    def _trace_spec(self, hdul1: fits.HDUList, **kwargs) -> dict[str, object]:
         """
-        Return native HDU mappings for each output trace.
+        Return native HDU mappings for the science trace.
 
-        Each dictionary should contain:
+        The returned dictionary should contain:
 
-        - ``trace_index``: output RVData trace number, e.g. ``1``.
         - ``flux``: native flux HDU name.
         - ``wave``: native wavelength HDU name.
         - ``var``: native variance HDU name.
@@ -218,20 +223,24 @@ class CARMENESRV2(RV2):
 
         Example
         -------
-        return [
-            {
-                "trace_index": 1,
-                "flux": "SCI_FLUX",
-                "wave": "SCI_WAVE",
-                "var": "SCI_VAR",
-                "blaze": "SCI_BLAZE",
-            },
-        ]
+        return {
+            "flux": "SCI_FLUX",
+            "wave": "SCI_WAVE",
+            "var": "SCI_VAR",
+            "blaze": "SCI_BLAZE",
+        }
         """
 
-        raise NotImplementedError(
-            "Define CARMENES native trace HDU mappings in _trace_specs."
-        )
+
+        return {
+            "flux": "SPEC",
+            "wave": "WAVE",
+            "var": "SIG",
+            "blaze": None,
+        }
+
+
+        
 
     def _echelle_orders(self, wavelengths: np.ndarray) -> np.ndarray:
         """Return physical echelle orders for the wavelength array rows."""
