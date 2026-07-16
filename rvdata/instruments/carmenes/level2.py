@@ -89,12 +89,13 @@ class CARMENESRV2(RV2):
         self.channel = str(hdul1["PRIMARY"].header.get("SUBSYS", "")).lower()
         if self.channel not in ("vis", "nir"):
             raise ValueError("CARMENES channel must be either 'vis' or 'nir'; "
-                f"got {self.channel!r}."
+                f"got {self.channel!r}.")
         
         # One should probably provide here the info on, which fiber is being provided (A or B, sci or cal)
         # for now fiber A (sci)
         self.trace_type = 'sci'
-    )
+        #hallo
+    
         
 
     def _populate_instrument_header(self, hdul1: fits.HDUList) -> None:
