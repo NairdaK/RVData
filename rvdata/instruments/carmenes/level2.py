@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 from astropy.table import Table
+from astropy import constants
 
 from rvdata.core.models.level2 import RV2
 
@@ -63,7 +64,7 @@ class CARMENESRV2(RV2):
         self._validate_input(hdul1, **kwargs)
         self._populate_instrument_header(hdul1)
         self._populate_trace_extensions(hdul1, **kwargs)
-        self._populate_order_table()
+        self._populate_order_table(hdul1)
         self._populate_barycentric_extensions(hdul1, **kwargs)
 
         l0file = kwargs.get("l0file")  # here the raw file can be provided if needed (to be decided)
@@ -94,8 +95,6 @@ class CARMENESRV2(RV2):
         # One should probably provide here the info on, which fiber is being provided (A or B, sci or cal)
         # for now fiber A (sci)
         self.trace_type = 'sci'
-        #hallo
-    
         
 
     def _populate_instrument_header(self, hdul1: fits.HDUList) -> None:
@@ -130,7 +129,9 @@ class CARMENESRV2(RV2):
         self._set_or_create_image(out_prefix + "VAR", var_data, var_header)
         self._set_or_create_image(out_prefix + "BLAZE", blaze_data, blaze_header)
 
-    def _populate_order_table(self, wave_ext: str = "TRACE1_WAVE") -> None:
+    def _populate_order_table(
+        self, hdul1: fits.HDUList, wave_ext: str = "TRACE1_WAVE"
+    ) -> None:
         """Build ``ORDER_TABLE`` from a populated wavelength extension."""
 
         if wave_ext not in self.data or self.data[wave_ext].size == 0:
@@ -148,17 +149,100 @@ class CARMENESRV2(RV2):
                 "WAVE_END": np.nanmax(wavelengths, axis=1),
             }
         )
+        for column_name, values in self._order_table_extra_columns(
+            hdul1, wavelengths
+        ).items():
+            values = np.asarray(values)
+            if values.shape[0] != wavelengths.shape[0]:
+                raise ValueError(
+                    f"ORDER_TABLE column {column_name!r} has {values.shape[0]} "
+                    f"values, expected {wavelengths.shape[0]}."
+                )
+            order_table[column_name] = values
+
         self.set_data("ORDER_TABLE", order_table)
+
+    def _order_table_extra_columns(
+        self, hdul1: fits.HDUList, wavelengths: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        """
+        Return optional per-order columns to append to ``ORDER_TABLE``.
+
+        CARMENES stores one SNR and one reduced-chi value per order in the
+        primary header using ``HIERARCH CARACAL FOX SNR n`` and
+        ``HIERARCH CARACAL FOX RCHI n``, where ``n`` is the order index.
+        """
+
+        header = hdul1["PRIMARY"].header
+        n_orders = wavelengths.shape[0]
+        if self.channel == "vis":
+            rchi = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX RCHI {order_index}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+            snr = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX SNR {order_index}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+
+            return {
+                "SNR_PER_PIXEL": snr,
+                "SQRT_REDUCED_CHI2": rchi, # maybe np.sqrt(rchi)---ask Mathias!!!
+            }
+        elif self.channel == "nir":
+            rchi_l = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX RCHI {2 * order_index}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+            rchi_r = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX RCHI {2 * order_index +1}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+            snr_l = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX SNR {2 * order_index}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+            snr_r = np.array(
+                [
+                    header[f"HIERARCH CARACAL FOX SNR {2 * order_index +1}"]
+                    for order_index in range(n_orders)
+                ],
+                dtype=float,
+            )
+
+            return {
+                "SNR_PER_PIXEL_LEFT": snr_l,
+                "SNR_PER_PIXEL_RIGHT": snr_r,
+                "SQRT_REDUCED_CHI2_LEFT": rchi_l, # maybe np.sqrt(rchi)---ask Mathias!!!
+                "SQRT_REDUCED_CHI2_RIGHT": rchi_r, # maybe np.sqrt(rchi)---ask Mathias!!!
+            }
 
     def _populate_barycentric_extensions(
         self, hdul1: fits.HDUList, **kwargs
     ) -> None:
         """Populate barycentric correction and BJD extensions."""
 
-        raise NotImplementedError(
-            "Map CARMENES barycentric correction data to BARYCORR_KMS, "
-            "BARYCORR_Z, and BJD_TDB."
-        )
+        berv_kms = hdul1["PRIMARY"].header["HIERARCH CARACAL BERV"]
+        bjd_tdb = hdul1["PRIMARY"].header["HIERARCH CARACAL BJD"] + 2400000. # or whatever the real key is
+
+        self.set_data("BARYCORR_KMS", berv_kms)
+        self.set_data("BARYCORR_Z", (berv_kms / constants.c.to("km/s")).value)
+        self.set_data("BJD_TDB", bjd_tdb)
 
     def _populate_optional_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
         """
@@ -168,13 +252,51 @@ class CARMENESRV2(RV2):
         as ``EXPMETER``, ``TELEMETRY``, ``DRP_CONFIG``, ``RECEIPT``,
         ``TRACEi_DRIFT``, ``TRACEi_TELLURIC``, and ``TRACEi_SKY``.
         """
+        pass
 
     def _populate_primary_header(self, hdul1: fits.HDUList, **kwargs) -> None:
         """Populate the standardized RVData primary header."""
 
-        raise NotImplementedError(
-            "Map the native CARMENES primary header to the RVData PRIMARY header."
+        hmap_path = os.path.join(
+            os.path.dirname(__file__), "config", "header_map_carm.csv"
         )
+        headmap = pd.read_csv(hmap_path, header=0)
+
+        phead = RV2().headers["PRIMARY"]
+        ihead = self.headers["INSTRUMENT_HEADER"]
+
+        for _, row in headmap.iterrows():
+            skey = row["STANDARD"]
+            carmenes_key = row["INSTRUMENT"]
+            content = phead.get(skey, "")
+            description = content[1] if len(content) == 2 else ""
+
+            if pd.notnull(carmenes_key) and carmenes_key in ihead:
+                value = ihead[carmenes_key]
+            else:
+                value = row["DEFAULT"]
+
+            phead[skey] = (value if pd.notnull(value) else None, description)
+
+        self._set_primary_value(phead, "INSTRUME", "CARMENES")
+        self._set_primary_value(phead, "DATALVL", "L2")
+        self._set_primary_value(phead, "NUMTRACE", 1)
+        self._set_primary_value(phead, "NUMORDER", self.data["TRACE1_WAVE"].shape[0])
+        self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
+        self._set_primary_value(
+            phead, "TRACE1", self.trace_type.upper(), "Trace 1 type"
+        )
+
+        self.set_header("PRIMARY", phead)
+
+    @staticmethod
+    def _set_primary_value(phead: OrderedDict, key: str, value, comment=None) -> None:
+        """Set a primary header value while preserving the base comment."""
+
+        content = phead.get(key, "")
+        if comment is None:
+            comment = content[1] if len(content) == 2 else ""
+        phead[key] = (value, comment)
 
     def _populate_extension_descriptions(self) -> None:
         """
@@ -246,7 +368,10 @@ class CARMENESRV2(RV2):
     def _echelle_orders(self, wavelengths: np.ndarray) -> np.ndarray:
         """Return physical echelle orders for the wavelength array rows."""
 
-        return np.arange(wavelengths.shape[0])
+        if self.channel == "vis":
+            return 118 - np.arange(wavelengths.shape[0])
+        elif self.channel == "nir":
+            return 63 - np.arange(wavelengths.shape[0])
 
     # ------------------------------------------------------------------
     # Small helpers
