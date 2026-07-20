@@ -14,6 +14,7 @@ import pandas as pd
 from astropy.io import fits
 from astropy.table import Table
 from astropy import constants
+from astropy.time import Time
 
 from rvdata.core.models.level2 import RV2
 
@@ -278,14 +279,20 @@ class CARMENESRV2(RV2):
 
             phead[skey] = (value if pd.notnull(value) else None, description)
 
-        self._set_primary_value(phead, "INSTRUME", "CARMENES")
-        self._set_primary_value(phead, "DATALVL", "L2")
-        self._set_primary_value(phead, "NUMTRACE", 1)
-        self._set_primary_value(phead, "NUMORDER", self.data["TRACE1_WAVE"].shape[0])
-        self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
-        self._set_primary_value(
-            phead, "TRACE1", self.trace_type.upper(), "Trace 1 type"
-        )
+
+        # set header keywords here
+
+        utc_from_jd = Time(ihead["HIERARCH CARACAL UTC"], format="jd", scale="utc")
+        self._set_primary_value(phead, "DATE", utc_from_jd.isot)
+
+        #self._set_primary_value(phead, "INSTRUME", "CARMENES")
+        #self._set_primary_value(phead, "DATALVL", "L2")
+        #self._set_primary_value(phead, "NUMTRACE", 1)
+        #self._set_primary_value(phead, "NUMORDER", self.data["TRACE1_WAVE"].shape[0])
+        #self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
+        #self._set_primary_value(
+        #    phead, "TRACE1", self.trace_type.upper(), "Trace 1 type"
+        #)
 
         self.set_header("PRIMARY", phead)
 
