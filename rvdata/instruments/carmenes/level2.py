@@ -271,6 +271,8 @@ class CARMENESRV2(RV2):
             carmenes_key = row["INSTRUMENT"]
             content = phead.get(skey, "")
             description = content[1] if len(content) == 2 else ""
+            if "DESCRIPTION" in headmap.columns and pd.notnull(row["DESCRIPTION"]):
+                description = row["DESCRIPTION"]
 
             if pd.notnull(carmenes_key) and carmenes_key in ihead:
                 value = ihead[carmenes_key]
@@ -284,6 +286,11 @@ class CARMENESRV2(RV2):
 
         utc_from_jd = Time(ihead["HIERARCH CARACAL UTC"], format="jd", scale="utc")
         self._set_primary_value(phead, "DATE", utc_from_jd.isot)
+        jd_start = ihead["MJD-OBS"] +  2400000.5
+        self._set_primary_value(phead, "JD-UTC", jd_start)
+
+        # INSTERA can be used to track changes to the instrument (maybe in NIR useful?)
+        # FULLCOMP could be set to "No", as long not compatible to EPRV standard
 
         #self._set_primary_value(phead, "INSTRUME", "CARMENES")
         #self._set_primary_value(phead, "DATALVL", "L2")
