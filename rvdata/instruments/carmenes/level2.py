@@ -7,14 +7,19 @@ are organized around filling those extensions from native CARMENES products.
 """
 
 import os
+import re
 from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
+from astroquery.gaia import Gaia
+from astroquery.simbad import Simbad
 from astropy.io import fits
 from astropy.table import Table
 from astropy import constants
 from astropy.time import Time
+from astropy.coordinates import Angle
+import astropy.units as u
 
 from rvdata.core.models.level2 import RV2
 
@@ -292,16 +297,66 @@ class CARMENESRV2(RV2):
         # INSTERA can be used to track changes to the instrument (maybe in NIR useful?)
         # FULLCOMP could be set to "No", as long not compatible to EPRV standard
 
-        #self._set_primary_value(phead, "INSTRUME", "CARMENES")
-        #self._set_primary_value(phead, "DATALVL", "L2")
-        #self._set_primary_value(phead, "NUMTRACE", 1)
-        #self._set_primary_value(phead, "NUMORDER", self.data["TRACE1_WAVE"].shape[0])
-        #self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
-        #self._set_primary_value(
-        #    phead, "TRACE1", self.trace_type.upper(), "Trace 1 type"
-        #)
+        self._set_primary_value(phead, "NUMTRACE", 1)
+        self._set_primary_value(phead, "NUMORDER", self.data["TRACE1_WAVE"].shape[0])
+        trace1 = str(ihead["HIERARCH CARACAL CATG"]).split(",", 1)[0].strip()
+        self._set_primary_value(phead, "TRACE1", trace1)
+
+        ra_deg = ihead["RA"]
+        dec_deg = ihead["DEC"]
+
+        cra1 = Angle(ra_deg, unit=u.deg).to_string(
+            unit=u.hour,
+            sep=":",
+            precision=3,
+            pad=True,
+            )
+
+        cdec1 = Angle(dec_deg, unit=u.deg).to_string(
+            unit=u.deg,
+            sep=":",
+            precision=3,
+            alwayssign=True,
+            pad=True,
+        )
+
+        self._set_primary_value(phead, "CRA1", cra1)
+        self._set_primary_value(phead, "CDEC1", cdec1)
+
+        object_id = phead.get("CID1", "")
+        self.catalog_data = None
+        if self._is_carmenes_id(object_id):
+            self.catalog_data = self.simbad_queryID(object_id)
+
+        if self.catalog_data is not None:
+            self._set_primary_value(phead, "CSRC1", "Gaia DR3")
+            self._set_primary_value(phead, "CID1", self.catalog_data["gaia_dr3_id"])
+            self._set_primary_value(phead, "CRA1", self.catalog_data["ra_sexagesimal"])
+            self._set_primary_value(phead, "CDEC1", self.catalog_data["dec_sexagesimal"])
+            self._set_primary_value(phead, "CEQNX1", self.catalog_data["equinox"])
+            self._set_primary_value(phead, "CEPCH1", self.catalog_data["epoch"])
+            self._set_primary_value(phead, "CRV1", self.catalog_data["systemic_rv_kms"])
+
+        dq_keys = ("DQLVL0", "DQLVL1", "DQLVL2")
+
+        try:
+            all_ok = all(int(self._plain_value(phead[key])) == 0 for key in dq_keys)
+        except (KeyError, TypeError, ValueError):
+            all_ok = False
+
+        self._set_primary_value(phead, "SUMMFLAG", "Pass" if all_ok else "Fail")
+
+        self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
+        # now populate optional keywords and CARMENES own keywords
+
 
         self.set_header("PRIMARY", phead)
+    
+    @staticmethod
+    def _plain_value(value):
+        """Return the scalar value from a FITS-style (value, comment) tuple."""
+
+        return value[0] if isinstance(value, tuple) else value
 
     @staticmethod
     def _set_primary_value(phead: OrderedDict, key: str, value, comment=None) -> None:
@@ -311,6 +366,124 @@ class CARMENESRV2(RV2):
         if comment is None:
             comment = content[1] if len(content) == 2 else ""
         phead[key] = (value, comment)
+    
+    @staticmethod
+    def _is_carmenes_id(object_id: str) -> bool:
+        """Return True when an identifier looks like a CARMENES J-name."""
+
+        return re.match(r"^J\S+", str(object_id).strip()) is not None
+
+    def simbad_queryID(self, object_id: str) -> dict | None:
+        """
+        Resolve a CARMENES identifier through SIMBAD and Gaia DR3.
+
+        Returns
+        -------
+        dict or None
+            Gaia DR3 identifier, RA/Dec in sexagesimal, equinox, epoch, and
+            systemic radial velocity in km/s. ``None`` is returned when the
+            identifier cannot be resolved to a Gaia DR3 source.
+        """
+
+        try:
+            simbad = Simbad()
+            simbad.add_votable_fields("ids", "rvz_radvel")
+            result = simbad.query_object(str(object_id).strip())
+            if result is None or len(result) == 0:
+                return None
+
+            row = result[0]
+            gaia_dr3_id = self._gaia_dr3_id_from_simbad_ids(row["ids"])
+            if gaia_dr3_id is None:
+                return None
+
+            source_id = gaia_dr3_id.removeprefix("Gaia DR3").strip()
+            gaia_row = self._query_gaia_dr3_source(source_id)
+            if gaia_row is None:
+                return None
+
+            ra_deg = self._table_value(gaia_row, "ra")
+            dec_deg = self._table_value(gaia_row, "dec")
+            epoch = self._table_value(gaia_row, "ref_epoch")
+            systemic_rv = self._table_value(gaia_row, "radial_velocity")
+            if systemic_rv is None:
+                systemic_rv = self._table_value(row, "rvz_radvel")
+
+            return {
+                "gaia_dr3_id": gaia_dr3_id,
+                "ra_sexagesimal": self._ra_deg_to_sexagesimal(ra_deg),
+                "dec_sexagesimal": self._dec_deg_to_sexagesimal(dec_deg),
+                "equinox": 2000.0,
+                "epoch": float(epoch) if epoch is not None else None,
+                "systemic_rv_kms": (
+                    float(systemic_rv) if systemic_rv is not None else None
+                ),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def _gaia_dr3_id_from_simbad_ids(ids_value) -> str | None:
+        """Extract the Gaia DR3 identifier from a SIMBAD ids field."""
+
+        for name in str(ids_value).split("|"):
+            name = name.strip()
+            if name.lower().startswith("gaia dr3 "):
+                return name
+        return None
+
+    @staticmethod
+    def _query_gaia_dr3_source(source_id: str):
+        """Return one Gaia DR3 source row for a numeric Gaia source id."""
+
+        if not re.fullmatch(r"\d+", source_id):
+            return None
+
+        query = f"""
+            SELECT TOP 1 source_id, ra, dec, ref_epoch, radial_velocity
+            FROM gaiadr3.gaia_source
+            WHERE source_id = {source_id}
+        """
+        result = Gaia.launch_job(query).get_results()
+        if result is None or len(result) == 0:
+            return None
+        return result[0]
+
+    @staticmethod
+    def _table_value(row, key):
+        """Return a scalar table-row value, converting masked values to None."""
+
+        value = row[key]
+        if np.ma.is_masked(value):
+            return None
+        if hasattr(value, "item"):
+            value = value.item()
+        if pd.isna(value):
+            return None
+        return value
+
+    @staticmethod
+    def _ra_deg_to_sexagesimal(ra_deg) -> str:
+        """Convert right ascension in degrees to HH:MM:SS.sss."""
+
+        return Angle(float(ra_deg), unit=u.deg).to_string(
+            unit=u.hour,
+            sep=":",
+            precision=3,
+            pad=True,
+        )
+
+    @staticmethod
+    def _dec_deg_to_sexagesimal(dec_deg) -> str:
+        """Convert declination in degrees to signed DD:MM:SS.sss."""
+
+        return Angle(float(dec_deg), unit=u.deg).to_string(
+            unit=u.deg,
+            sep=":",
+            precision=3,
+            alwayssign=True,
+            pad=True,
+        )
 
     def _populate_extension_descriptions(self) -> None:
         """
