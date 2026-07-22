@@ -44,3 +44,33 @@ SUMMFLAG,PRIMARY,,,UNKNOWN,Summary roll up of other flag keywords
 DQLVL0,PRIMARY,,,0,Quality check bitfield of N characters
 DQLVL1,PRIMARY,,,0,Quality check bitfield of N characters
 DQLVL2,PRIMARY,HIERARCH CARACAL XTR QCFLAG,PRIMARY,0,Quality check bitfield of N characters
+
+
+ORIGIN,PRIMARY,ORIGIN,PRIMARY,UNKNOWN,http://carmenes.caha.es
+PROGRAM,PRIMARY,PROG-NUM,PRIMARY,UNKNOWN,CAHA internal program number
+PINAME,PRIMARY,PROG-PI,PRIMARY,UNKNOWN,CAHA internal program PI identifier
+OBSMODE,PRIMARY,HIERARCH CAHA INS ICS OBS-MODE,PRIMARY,UNKNOWN,ICS observing mode
+ALIASES,PRIMARY,HIERARCH CAHA INS SCHEDULER KARMN,PRIMARY,UNKNOWN,Carmencita name (GTO only)
+
+CPLX1,PRIMARY,,,UNKNOWN,Catalog parallax for object in trace 1 to #
+CPMR1,PRIMARY,,,UNKNOWN,Catalog proper motion RA for object in trace 1 to #
+CPMD1,PRIMARY,,,UNKNOWN,Catalog proper motion DEC for object in trace 1 to #
+CZ1,PRIMARY,,,UNKNOWN,Catalog Z for for object in trace 1 to #
+CCLRN1,PRIMARY,,,UNKNOWN,Catalog color 1 - color 2 name for object in trace 1 to #
+CCLR1,PRIMARY,,,UNKNOWN,Catalog color 1 - color 2 for object in trace 1 to #
+
+SEEING,PRIMARY,HIERARCH CAHA GEN AMBI SEEING,PRIMARY,UNKNOWN,[arcsec] Seeing in V band
+AIRMASS,PRIMARY,AIRMASS,PRIMARY,UNKNOWN,Airmass at center field at beginning of exposure
+TLST1,PRIMARY,LST,PRIMARY,UNKNOWN,TCS local sidereal time for telescope 1 to #
+TRA1,PRIMARY,HIERARCH CAHA TEL POS SET RA,PRIMARY,UNKNOWN,TCS RA for telescope 1 to #
+TDEC1,PRIMARY,HIERARCH CAHA TEL POS SET DEC,PRIMARY,UNKNOWN,TCS DEC for telescope 1 to #
+TEL1,PRIMARY,HIERARCH CAHA TEL POS EL_START,PRIMARY,UNKNOWN,TCS elevation angle for telescope 1 to #
+TAZ1,PRIMARY,HIERARCH CAHA TEL POS AZ_START,PRIMARY,UNKNOWN,TCS azimuth angle for telescope 1 to #
+THA1,PRIMARY,HIERARCH CAHA TEL POS HA_START,PRIMARY,UNKNOWN,TCS hour angle for telescope 1 to #
+
+MOONANG,PRIMARY,HIERARCH CAHA INS SCHEDULER MOON DISTANCE,PRIMARY,UNKNOWN,Target-Moon Angle
+MOONILLU,PRIMARY,HIERARCH CAHA INS SCHEDULER MOON PHASE,PRIMARY,UNKNOWN,Moon illumination
+
+
+EXTRACT,PRIMARY,,,FOX,Type of 1D extraction
+FOXVERS,PRIMARY,HIERARCH CARACAL FOX VERSION,PRIMARY,UNKNOWN,FOX version / Author: M. Zechmeister

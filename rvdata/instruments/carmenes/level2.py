@@ -323,7 +323,9 @@ class CARMENESRV2(RV2):
         self._set_primary_value(phead, "CRA1", cra1)
         self._set_primary_value(phead, "CDEC1", cdec1)
 
-        object_id = phead.get("CID1", "")
+        object_id = self._plain_value(phead.get("CID1", ""))
+        if object_id in ("", None, "UNKNOWN"):
+            object_id = ihead.get("OBJECT", "")
         self.catalog_data = None
         if self._is_carmenes_id(object_id):
             self.catalog_data = self.simbad_queryID(object_id)
@@ -336,6 +338,12 @@ class CARMENESRV2(RV2):
             self._set_primary_value(phead, "CEQNX1", self.catalog_data["equinox"])
             self._set_primary_value(phead, "CEPCH1", self.catalog_data["epoch"])
             self._set_primary_value(phead, "CRV1", self.catalog_data["systemic_rv_kms"])
+            self._set_primary_value(phead, "CPLX1", self.catalog_data["parallax_mas"])
+            self._set_primary_value(phead, "CPMR1", self.catalog_data["pmra_arcsec_per_yr"])
+            self._set_primary_value(phead, "CPMD1", self.catalog_data["pmdec_arcsec_per_yr"])
+            self._set_primary_value(phead, "CZ1", self.catalog_data["catalog_z"])
+            self._set_primary_value(phead, "CCLRN1", self.catalog_data["color_name"])
+            self._set_primary_value(phead, "CCLR1", self.catalog_data["color_value"])
 
         dq_keys = ("DQLVL0", "DQLVL1", "DQLVL2")
 
@@ -349,6 +357,22 @@ class CARMENESRV2(RV2):
         self._set_primary_value(phead, "CHANNEL", self.channel, "CARMENES channel")
         # now populate optional keywords and CARMENES own keywords
 
+        if "LST" in ihead:
+            self._set_primary_value(phead, "TLST1", self._hours_to_sexagesimal(ihead["LST"]))
+
+        if "HIERARCH CAHA TEL POS SET RA" in ihead:
+            self._set_primary_value(
+                phead,
+                "TRA1",
+                self._ra_deg_to_sexagesimal(ihead["HIERARCH CAHA TEL POS SET RA"]),
+            )
+        if "HIERARCH CAHA TEL POS SET DEC" in ihead:
+            self._set_primary_value(
+                phead,
+                "TDEC1",
+                self._dec_deg_to_sexagesimal(ihead["HIERARCH CAHA TEL POS SET DEC"]),
+            )
+
 
         self.set_header("PRIMARY", phead)
     
@@ -357,6 +381,18 @@ class CARMENESRV2(RV2):
         """Return the scalar value from a FITS-style (value, comment) tuple."""
 
         return value[0] if isinstance(value, tuple) else value
+
+    @staticmethod
+    def _hours_to_sexagesimal(hours) -> str:
+        """Convert decimal hours to a sexagesimal HH:MM:SS.sss string."""
+
+        hours = float(hours) % 24.0
+        return Angle(hours, unit=u.hourangle).to_string(
+            unit=u.hourangle,
+            sep=":",
+            precision=3,
+            pad=True,
+        )
 
     @staticmethod
     def _set_primary_value(phead: OrderedDict, key: str, value, comment=None) -> None:
@@ -380,9 +416,10 @@ class CARMENESRV2(RV2):
         Returns
         -------
         dict or None
-            Gaia DR3 identifier, RA/Dec in sexagesimal, equinox, epoch, and
-            systemic radial velocity in km/s. ``None`` is returned when the
-            identifier cannot be resolved to a Gaia DR3 source.
+            Gaia DR3 identifier, RA/Dec in sexagesimal, equinox, epoch,
+            systemic radial velocity in km/s, parallax, proper motion, and
+            catalog redshift. ``None`` is returned when the identifier cannot
+            be resolved to a Gaia DR3 source.
         """
 
         try:
@@ -406,8 +443,19 @@ class CARMENESRV2(RV2):
             dec_deg = self._table_value(gaia_row, "dec")
             epoch = self._table_value(gaia_row, "ref_epoch")
             systemic_rv = self._table_value(gaia_row, "radial_velocity")
+            parallax = self._table_value(gaia_row, "parallax")
+            pmra = self._table_value(gaia_row, "pmra")
+            pmdec = self._table_value(gaia_row, "pmdec")
+            bp_mag = self._table_value(gaia_row, "phot_bp_mean_mag")
+            rp_mag = self._table_value(gaia_row, "phot_rp_mean_mag")
             if systemic_rv is None:
                 systemic_rv = self._table_value(row, "rvz_radvel")
+            catalog_z = None
+            if systemic_rv is not None:
+                catalog_z = float(systemic_rv) / constants.c.to("km/s").value
+            color_value = None
+            if bp_mag is not None and rp_mag is not None:
+                color_value = float(bp_mag) - float(rp_mag)
 
             return {
                 "gaia_dr3_id": gaia_dr3_id,
@@ -418,6 +466,16 @@ class CARMENESRV2(RV2):
                 "systemic_rv_kms": (
                     float(systemic_rv) if systemic_rv is not None else None
                 ),
+                "parallax_mas": float(parallax) if parallax is not None else None,
+                "pmra_arcsec_per_yr": (
+                    float(pmra) / 1000.0 if pmra is not None else None
+                ),
+                "pmdec_arcsec_per_yr": (
+                    float(pmdec) / 1000.0 if pmdec is not None else None
+                ),
+                "catalog_z": catalog_z,
+                "color_name": "Gaia BP-RP",
+                "color_value": color_value,
             }
         except Exception:
             return None
@@ -440,7 +498,9 @@ class CARMENESRV2(RV2):
             return None
 
         query = f"""
-            SELECT TOP 1 source_id, ra, dec, ref_epoch, radial_velocity
+            SELECT TOP 1
+                source_id, ra, dec, ref_epoch, radial_velocity,
+                parallax, pmra, pmdec, phot_bp_mean_mag, phot_rp_mean_mag
             FROM gaiadr3.gaia_source
             WHERE source_id = {source_id}
         """
