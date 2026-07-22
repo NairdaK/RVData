@@ -20,6 +20,9 @@ from astropy import constants
 from astropy.time import Time
 from astropy.coordinates import Angle
 import astropy.units as u
+from rvdata.instruments.carmenes.utils import (
+    corr_waves_RV,
+)
 
 from rvdata.core.models.level2 import RV2
 
@@ -116,6 +119,8 @@ class CARMENESRV2(RV2):
 
         flux_data, flux_header = self._read_image_hdu(hdul1, trace_spec["flux"])
         wave_data, wave_header = self._read_image_hdu(hdul1, trace_spec["wave"])
+        fp_drift = hdul1["PRIMARY"].header.get("HIERARCH CARACAL SERVAL FP RV")
+        wave_data = corr_waves_RV(wave_data, fp_drift)
         var_data, var_header = self._read_image_hdu(hdul1, trace_spec["var"])
 
         blaze_ext = trace_spec.get("blaze")
@@ -374,6 +379,8 @@ class CARMENESRV2(RV2):
             )
 
 
+        # if fiber B is extracted, the extracted flux will be blazed; then we need to change it here
+
         self.set_header("PRIMARY", phead)
     
     @staticmethod
@@ -555,7 +562,7 @@ class CARMENESRV2(RV2):
         is under development.
         """
 
-        ext_path = os.path.join(os.path.dirname(__file__), "config", "ext_descript.csv")
+        ext_path = os.path.join(os.path.dirname(__file__), "config", "ext_descript_carm.csv")
         if os.path.exists(ext_path):
             ext_descript = pd.read_csv(ext_path)
             if "Comments" in ext_descript.columns:
