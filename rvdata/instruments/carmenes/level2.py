@@ -110,7 +110,8 @@ class CARMENESRV2(RV2):
     def _populate_instrument_header(self, hdul1: fits.HDUList) -> None:
         """Store the native primary header as ``INSTRUMENT_HEADER``."""
 
-        self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
+        #self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
+        self.set_header("INSTRUMENT_HEADER", hdul1["PRIMARY"].header.copy())
 
     def _populate_trace_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
         """Populate ``TRACE1_FLUX/WAVE/VAR/BLAZE`` image extensions."""
