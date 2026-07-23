@@ -8,6 +8,7 @@ are organized around filling those extensions from native CARMENES products.
 
 import os
 import re
+import warnings
 from collections import OrderedDict
 
 import numpy as np
@@ -251,9 +252,12 @@ class CARMENESRV2(RV2):
         berv_kms = hdul1["PRIMARY"].header["HIERARCH CARACAL BERV"]
         bjd_tdb = hdul1["PRIMARY"].header["HIERARCH CARACAL BJD"] + 2400000. # or whatever the real key is
 
-        self.set_data("BARYCORR_KMS", berv_kms)
-        self.set_data("BARYCORR_Z", (berv_kms / constants.c.to("km/s")).value)
-        self.set_data("BJD_TDB", bjd_tdb)
+        self.set_data("BARYCORR_KMS", np.array([berv_kms], dtype=float))
+        self.set_data(
+            "BARYCORR_Z",
+            np.array([berv_kms / constants.c.to_value("km/s")], dtype=float),
+        )
+        self.set_data("BJD_TDB", np.array([bjd_tdb], dtype=float))
 
     def _populate_optional_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
         """
@@ -297,7 +301,7 @@ class CARMENESRV2(RV2):
         utc_from_jd = Time(ihead["HIERARCH CARACAL UTC"], format="jd", scale="utc")
         self._set_primary_value(phead, "DATE", utc_from_jd.isot)
         jd_start = ihead["MJD-OBS"] +  2400000.5
-        self._set_primary_value(phead, "JD-UTC", jd_start)
+        self._set_primary_value(phead, "JD_UTC", jd_start)
 
         # INSTERA can be used to track changes to the instrument (maybe in NIR useful?)
         # FULLCOMP could be set to "No", as long not compatible to EPRV standard
@@ -332,7 +336,8 @@ class CARMENESRV2(RV2):
         if object_id in ("", None, "UNKNOWN"):
             object_id = ihead.get("OBJECT", "")
         self.catalog_data = None
-        if self._is_carmenes_id(object_id):
+        query_catalog = kwargs.get("query_catalog", True)
+        if query_catalog and self._is_carmenes_id(object_id):
             self.catalog_data = self.simbad_queryID(object_id)
 
         if self.catalog_data is not None:
@@ -484,7 +489,12 @@ class CARMENESRV2(RV2):
                 "color_name": "Gaia BP-RP",
                 "color_value": color_value,
             }
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                f"SIMBAD/Gaia catalog lookup failed for {object_id!r}: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
 
     @staticmethod
@@ -556,7 +566,7 @@ class CARMENESRV2(RV2):
         """
         Populate ``EXT_DESCRIPT``.
 
-        If ``config/ext_descript.csv`` exists next to this module, it is used.
+        If ``config/ext_descript_carm.csv`` exists next to this module, it is used.
         Otherwise a compact table is generated from currently present
         extensions so interim products remain inspectable while the translator
         is under development.
