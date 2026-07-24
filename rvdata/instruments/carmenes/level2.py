@@ -58,6 +58,19 @@ class CARMENESRV2(RV2):
 
     instrument_name = "CARMENES"
 
+    def generate_standard_filename(self) -> str:
+        """Generate a CARMENES standard filename including the VIS/NIR channel."""
+
+        if not hasattr(self, "channel") or self.channel not in ("vis", "nir"):
+            raise ValueError(
+                "CARMENES channel is not set; read a CARMENES file before "
+                "generating a standard filename."
+            )
+
+        filename = super().generate_standard_filename()
+        prefix, suffix = filename.split("_SL", 1)
+        return f"{prefix}{self.channel}_SL{suffix}"
+
     def _read(self, hdul1: fits.HDUList, **kwargs) -> None:
         """
         Populate this RVData Level 2 object from a native CARMENES FITS file.
@@ -431,7 +444,7 @@ class CARMENESRV2(RV2):
             object_id = ihead.get("OBJECT", "")
         self.catalog_data = None
         query_catalog = kwargs.get("query_catalog", True)
-        if query_catalog and self._is_carmenes_id(object_id):
+        if query_catalog and object_id not in ("", None, "UNKNOWN"):
             self.catalog_data = self.simbad_queryID(object_id)
 
         if self.catalog_data is not None:
@@ -529,9 +542,16 @@ class CARMENESRV2(RV2):
         """
 
         try:
+            simbad_object_id = str(object_id).strip()
+            if (
+                self._is_carmenes_id(simbad_object_id)
+                and not simbad_object_id.lower().startswith("karmn ")
+            ):
+                simbad_object_id = f"Karmn {simbad_object_id}"
+
             simbad = Simbad()
             simbad.add_votable_fields("ids", "rvz_radvel")
-            result = simbad.query_object(str(object_id).strip())
+            result = simbad.query_object(simbad_object_id)
             if result is None or len(result) == 0:
                 return None
 

@@ -20,9 +20,9 @@ Carmenes
 * Link to data archive: http://carmenes.cab.inta-csic.es
 * Person/email for translator maintenance & bug reports: Adrian Kaminski (a.kaminski@lsw.uni-heidelberg.de)
 * Naming convention for all data standard products:
-  * L2 : carmvis_SL2_YYYYMMDDThhmmss.fits / carmnir_SL2_YYYYMMDDThhmmss.fits
-  * L3 : carmvis_SL3_YYYYMMDDThhmmss.fits / carmnir_SL3_YYYYMMDDThhmmss.fits
-  * L4 : carmvis_SL4_YYYYMMDDThhmmss.fits / carmnir_SL4_YYYYMMDDThhmmss.fits
+  * L2 : carmenesvis_SL2_YYYYMMDDThhmmss.fits / carmenesnir_SL2_YYYYMMDDThhmmss.fits
+  * L3 : carmenesvis_SL3_YYYYMMDDThhmmss.fits / carmenesnir_SL3_YYYYMMDDThhmmss.fits
+  * L4 : carmenesvis_SL4_YYYYMMDDThhmmss.fits / carmenesnir_SL4_YYYYMMDDThhmmss.fits
 * Date of last translator update and current version number: July 2026
 
 **Instrument era (INSTERA keyword) date ranges**
