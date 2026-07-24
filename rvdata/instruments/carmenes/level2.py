@@ -77,14 +77,8 @@ class CARMENESRV2(RV2):
         self._populate_order_table(hdul1)
         self._populate_barycentric_extensions(hdul1, **kwargs)
 
-        l0file = kwargs.get("l0file")  # here the raw file can be provided if needed (to be decided)
+        self._populate_optional_extensions(hdul1, **kwargs)
 
-        if l0file is not None:
-            with fits.open(l0file, memmap=False) as hdul0:
-                self._populate_optional_extensions(hdul1, hdul0=hdul0, **kwargs)
-        else:
-            self._populate_optional_extensions(hdul1, hdul0=None, **kwargs)
-            
         self._populate_primary_header(hdul1, **kwargs)
         self._populate_extension_descriptions()
 
@@ -264,10 +258,109 @@ class CARMENESRV2(RV2):
         """
         Populate optional RVData L2 extensions when CARMENES products provide them.
 
-        Fill this method with instrument-specific handling for extensions such
-        as ``EXPMETER``, ``TELEMETRY``, ``DRP_CONFIG``, ``RECEIPT``,
-        ``TRACEi_DRIFT``, ``TRACEi_TELLURIC``, and ``TRACEi_SKY``.
+        Optional files are provided as keyword arguments:
+
+        - ``fiber_b_file``: CARMENES fiber B product.
+        - ``raw_image_file``: raw detector image product.
+        - ``exposure_meter_file``: exposure meter product.
         """
+
+        fiber_b_file = kwargs.get("fiber_b_file")
+        if fiber_b_file is not None:
+            with fits.open(fiber_b_file, memmap=False) as hdul_fiber_b:
+                self._populate_fiber_b_extensions(
+                    hdul1, hdul_fiber_b=hdul_fiber_b, **kwargs
+                )
+
+        raw_image_file = kwargs.get("raw_image_file")
+        if raw_image_file is not None:
+            with fits.open(raw_image_file, memmap=False) as hdul_raw_image:
+                self._populate_raw_image_extensions(
+                    hdul1, hdul_raw_image=hdul_raw_image, **kwargs
+                )
+
+        exposure_meter_file = kwargs.get("exposure_meter_file")
+        if exposure_meter_file is not None:
+            with fits.open(exposure_meter_file, memmap=False) as hdul_exposure_meter:
+                self._populate_exposure_meter_extensions(
+                    hdul1, hdul_exposure_meter=hdul_exposure_meter, **kwargs
+                )
+
+    def _populate_fiber_b_extensions(
+        self, hdul1: fits.HDUList, hdul_fiber_b: fits.HDUList, **kwargs
+    ) -> None:
+        """Populate extensions derived from an optional fiber B file."""
+
+        trace_spec = self._trace_spec(hdul_fiber_b, **kwargs)
+        out_prefix = "fib_B_"
+
+        flux_data, flux_header = self._read_image_hdu(
+            hdul_fiber_b, trace_spec["flux"]
+        )
+        wave_data, wave_header = self._read_image_hdu(
+            hdul_fiber_b, trace_spec["wave"]
+        )
+        fp_drift = hdul1["PRIMARY"].header.get("HIERARCH CARACAL SERVAL FP RV")
+        wave_data = corr_waves_RV(wave_data, fp_drift)
+        var_data, var_header = self._read_image_hdu(hdul_fiber_b, trace_spec["var"])
+
+        blaze_ext = trace_spec.get("blaze")
+        if blaze_ext is None:
+            blaze_data = np.ones_like(flux_data, dtype=float)
+            blaze_header = fits.Header()
+            blaze_header["BLZNORM"] = (True, "Blaze is normalized")
+            blaze_header["BLAZESRC"] = (
+                "NONE",
+                "No native blaze provided; array set to unity",
+            )
+        else:
+            blaze_data, blaze_header = self._read_image_hdu(hdul_fiber_b, blaze_ext)
+
+        self._set_or_create_image(out_prefix + "FLUX", flux_data, flux_header)
+        self._set_or_create_image(out_prefix + "WAVE", wave_data, wave_header)
+        self._set_or_create_image(out_prefix + "VAR", var_data, var_header)
+        self._set_or_create_image(out_prefix + "BLAZE", blaze_data, blaze_header)
+
+    def _populate_raw_image_extensions(
+        self, hdul1: fits.HDUList, hdul_raw_image: fits.HDUList, **kwargs
+    ) -> None:
+        """Populate extensions derived from an optional raw image file."""
+
+        if self.channel == "vis":
+            image_hdus = [
+                hdu
+                for hdu in hdul_raw_image
+                if isinstance(hdu, (fits.PrimaryHDU, fits.ImageHDU))
+                and hdu.data is not None
+            ]
+            if len(image_hdus) != 1:
+                raise ValueError(
+                    "CARMENES VIS raw image file must contain exactly one "
+                    f"image extension with data; found {len(image_hdus)}."
+                )
+            image_hdu = image_hdus[0]
+            self._set_or_create_image(
+                "RAW_IMAGE", np.asarray(image_hdu.data), image_hdu.header
+            )
+        elif self.channel == "nir":
+            for sca_ext in ("SCA2", "SCA1"):
+                image_data, image_header = self._read_image_hdu(
+                    hdul_raw_image, sca_ext
+                )
+                self._set_or_create_image(
+                    f"RAW_IMAGE_{sca_ext}", image_data, image_header
+                )
+        else:
+            raise ValueError(
+                f"CARMENES channel must be either 'vis' or 'nir'; "
+                f"got {self.channel!r}."
+            )
+
+    def _populate_exposure_meter_extensions(
+        self, hdul1: fits.HDUList, hdul_exposure_meter: fits.HDUList, **kwargs
+    ) -> None:
+        """Populate extensions derived from an optional exposure meter file."""
+
         pass
 
     def _populate_primary_header(self, hdul1: fits.HDUList, **kwargs) -> None:
@@ -659,18 +752,28 @@ class CARMENESRV2(RV2):
             raise ValueError(f"CARMENES HDU '{ext_name}' has no data.")
         return np.asarray(hdu.data), hdu.header
 
+    @staticmethod
+    def _copy_header(header: fits.Header | OrderedDict | None):
+        """Copy FITS headers without losing COMMENT/HISTORY/HIERARCH behavior."""
+
+        if header is None:
+            return OrderedDict()
+        if isinstance(header, fits.Header):
+            return header.copy()
+        return OrderedDict(header)
+
     def _set_or_create_image(
         self, ext_name: str, data: np.ndarray, header: fits.Header | OrderedDict
     ) -> None:
         """Set an existing image extension or create it if this trace is new."""
 
+        ext_name = ext_name.upper()
+        header = self._copy_header(header)
         if ext_name in self.extensions:
-            self.set_header(ext_name, OrderedDict(header))
+            self.set_header(ext_name, header)
             self.set_data(ext_name, data)
         else:
-            self.create_extension(
-                ext_name, "ImageHDU", data=data, header=OrderedDict(header)
-            )
+            self.create_extension(ext_name, "ImageHDU", data=data, header=header)
 
     def _set_or_create_table(
         self,
@@ -680,14 +783,15 @@ class CARMENESRV2(RV2):
     ) -> None:
         """Set an existing table extension or create it if absent."""
 
+        ext_name = ext_name.upper()
         if ext_name in self.extensions:
             if header is not None:
-                self.set_header(ext_name, OrderedDict(header))
+                self.set_header(ext_name, self._copy_header(header))
             self.set_data(ext_name, data)
         else:
             self.create_extension(
                 ext_name,
                 "BinTableHDU",
                 data=data,
-                header=OrderedDict(header or {}),
+                header=self._copy_header(header),
             )
