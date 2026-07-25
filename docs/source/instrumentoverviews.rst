@@ -86,6 +86,14 @@ TBD
 EXPRES
 =================
 
+.. warning::
+
+   **Work in progress.** Support for this instrument is under active development
+   and not yet complete. Only Level 2 is currently available; the Level 3 and
+   Level 4 translators are not yet implemented. The data products and
+   documentation below may be incomplete or subject to change before a full
+   release.
+
 **Instrument Details**
 
 * Instrument Name:  EXPRES (Extreme Precision Spectrograph)
@@ -245,6 +253,13 @@ G-CLEF
 HARPS
 =================
 
+.. warning::
+
+   **Work in progress.** Support for this instrument is under active development
+   and not yet complete. The translators are not yet release-ready. The data
+   products and documentation below may be incomplete or subject to change
+   before a full release.
+
 **Instrument Details**
 
 * Instrument Name: HARPS
@@ -311,6 +326,13 @@ TBD
 
 HARPS-N
 =================
+
+.. warning::
+
+   **Work in progress.** Support for this instrument is under active development
+   and not yet complete. The translators are not yet release-ready. The data
+   products and documentation below may be incomplete or subject to change
+   before a full release.
 
 **Instrument Details**
 
