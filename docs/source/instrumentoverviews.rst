@@ -897,6 +897,14 @@ radial velocities by order.
 NIRPS
 =================
 
+.. warning::
+
+   **Work in progress.** Support for this instrument is under active development
+   and not yet complete. NIRPS is not yet registered with the framework, so
+   ``from_fits(instrument="NIRPS")`` is not available. The data products and
+   documentation below may be incomplete or subject to change before a full
+   release.
+
 **Instrument Details**
 
 * Instrument Name: NIRPS
