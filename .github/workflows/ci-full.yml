@@ -69,7 +69,9 @@ jobs:
         id: astropy-cache
         uses: actions/cache@v4
         with:
-          path: ~/.astropy
+          path: |
+            ~/.astropy/cache
+            ~/.cache/astropy
           key: astropy-${{ runner.os }}-de430-${{ env.ASTROPY_CACHE_VERSION }}
 
       # A cold-cache outage at naif.jpl.nasa.gov must not block the 29 jobs
@@ -84,16 +86,44 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install astropy jplephem
           python - <<'PY'
+          import os
+          import shutil
+
+          from astropy.config.paths import get_cache_dir
           from astropy.coordinates import (
               get_body_barycentric_posvel,
               solar_system_ephemeris,
           )
           from astropy.time import Time
+          from astropy.utils.data import is_url_in_cache
 
-          # Downloads de430.bsp from naif.jpl.nasa.gov (~114 MB) plus the IERS
-          # Earth-orientation tables, all into ~/.astropy/cache.
-          with solar_system_ephemeris.set('jpl'):
-              get_body_barycentric_posvel('moon', Time(2458000.0, format='jd'))
+          DE430 = (
+              "https://naif.jpl.nasa.gov/pub/naif/generic_kernels"
+              "/spk/planets/de430.bsp"
+          )
+
+          # Pulls de430.bsp (~114 MB) plus the IERS Earth-orientation tables.
+          with solar_system_ephemeris.set("jpl"):
+              get_body_barycentric_posvel("moon", Time(2458000.0, format="jd"))
+
+          # Fail loudly rather than saving an empty cache: a step that silently
+          # downloads nothing looks identical to a successful one.
+          assert is_url_in_cache(DE430), "de430.bsp did not reach the cache"
+
+          # astropy <8 caches in ~/.astropy/cache; astropy >=8 moved to
+          # ~/.cache/astropy. The tox matrix spans both (olddeps pins
+          # astropy 7.2), and the on-disk layout under either root is
+          # identical, so mirror into both and let each env find its own.
+          src = get_cache_dir()
+          home = os.path.expanduser("~")
+          print(f"astropy cache={src!r} home={home!r}")
+          for dest in (
+              os.path.join(home, ".astropy", "cache"),
+              os.path.join(home, ".cache", "astropy"),
+          ):
+              if os.path.normpath(dest) != os.path.normpath(src):
+                  shutil.copytree(src, dest, dirs_exist_ok=True)
+                  print(f"mirrored -> {dest}")
           PY
 
   regression:
@@ -119,7 +149,9 @@ jobs:
       - name: Restore astropy data cache
         uses: actions/cache/restore@v4
         with:
-          path: ~/.astropy
+          path: |
+            ~/.astropy/cache
+            ~/.cache/astropy
           key: astropy-${{ runner.os }}-de430-${{ env.ASTROPY_CACHE_VERSION }}
 
       - name: Install dependencies
@@ -147,7 +179,9 @@ jobs:
       - name: Restore astropy data cache
         uses: actions/cache/restore@v4
         with:
-          path: ~/.astropy
+          path: |
+            ~/.astropy/cache
+            ~/.cache/astropy
           key: astropy-${{ runner.os }}-de430-${{ env.ASTROPY_CACHE_VERSION }}
 
       - name: Install dependencies
@@ -188,7 +222,9 @@ jobs:
       - name: Restore astropy data cache
         uses: actions/cache/restore@v4
         with:
-          path: ~/.astropy
+          path: |
+            ~/.astropy/cache
+            ~/.cache/astropy
           key: astropy-${{ runner.os }}-de430-${{ env.ASTROPY_CACHE_VERSION }}
 
       - name: Install dependencies
