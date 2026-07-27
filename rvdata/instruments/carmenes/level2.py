@@ -13,8 +13,6 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
-from astroquery.gaia import Gaia
-from astroquery.simbad import Simbad
 from astropy.io import fits
 from astropy.table import Table
 from astropy import constants
@@ -439,28 +437,94 @@ class CARMENESRV2(RV2):
         self._set_primary_value(phead, "CRA1", cra1)
         self._set_primary_value(phead, "CDEC1", cdec1)
 
-        object_id = self._plain_value(phead.get("CID1", ""))
-        if object_id in ("", None, "UNKNOWN"):
-            object_id = ihead.get("OBJECT", "")
+        karmn_id = self._plain_value(phead.get("CID1", ""))
+        if karmn_id in ("", None, "UNKNOWN"):
+            karmn_id = ihead.get("OBJECT", "")
+
         self.catalog_data = None
-        query_catalog = kwargs.get("query_catalog", True)
-        if query_catalog and object_id not in ("", None, "UNKNOWN"):
-            self.catalog_data = self.simbad_queryID(object_id)
+        carmencita_data = None
+        carmencita_query = kwargs.get("carmencita_query", True)
+        if carmencita_query and karmn_id not in ("", None, "UNKNOWN"):
+            carmencita_data = self.carmencita_queryID(karmn_id)
+            self.catalog_data = carmencita_data
+
+        query_catalog = kwargs.get("query_catalog", False)
+        if query_catalog and karmn_id not in ("", None, "UNKNOWN"):
+            catalog_data = self.simbad_queryID(karmn_id)
+            if catalog_data is not None:
+                self.catalog_data = catalog_data
 
         if self.catalog_data is not None:
-            self._set_primary_value(phead, "CSRC1", "Gaia DR3")
-            self._set_primary_value(phead, "CID1", self.catalog_data["gaia_dr3_id"])
-            self._set_primary_value(phead, "CRA1", self.catalog_data["ra_sexagesimal"])
-            self._set_primary_value(phead, "CDEC1", self.catalog_data["dec_sexagesimal"])
+            catalog_comments = self.catalog_data.get("comment_suffixes", {})
+            self._set_primary_value(
+                phead, "CSRC1", self.catalog_data["catalog_source"]
+            )
+            self._set_primary_value(
+                phead, "CID1", self.catalog_data["catalog_identifier"]
+            )
+            self._set_primary_value(
+                phead,
+                "CRA1",
+                self.catalog_data["ra_sexagesimal"],
+                self._comment_with_suffix(
+                    phead, "CRA1", catalog_comments.get("CRA1")
+                ),
+            )
+            self._set_primary_value(
+                phead,
+                "CDEC1",
+                self.catalog_data["dec_sexagesimal"],
+                self._comment_with_suffix(
+                    phead, "CDEC1", catalog_comments.get("CDEC1")
+                ),
+            )
             self._set_primary_value(phead, "CEQNX1", self.catalog_data["equinox"])
             self._set_primary_value(phead, "CEPCH1", self.catalog_data["epoch"])
-            self._set_primary_value(phead, "CRV1", self.catalog_data["systemic_rv_kms"])
-            self._set_primary_value(phead, "CPLX1", self.catalog_data["parallax_mas"])
-            self._set_primary_value(phead, "CPMR1", self.catalog_data["pmra_arcsec_per_yr"])
-            self._set_primary_value(phead, "CPMD1", self.catalog_data["pmdec_arcsec_per_yr"])
-            self._set_primary_value(phead, "CZ1", self.catalog_data["catalog_z"])
+            self._set_primary_value(
+                phead,
+                "CRV1",
+                self.catalog_data["systemic_rv_kms"],
+                self._comment_with_suffix(
+                    phead, "CRV1", catalog_comments.get("CRV1")
+                ),
+            )
+            self._set_primary_value(
+                phead,
+                "CPLX1",
+                self.catalog_data["parallax_mas"],
+                self._comment_with_suffix(
+                    phead, "CPLX1", catalog_comments.get("CPLX1")
+                ),
+            )
+            self._set_primary_value(
+                phead,
+                "CPMR1",
+                self.catalog_data["pmra_arcsec_per_yr"],
+                self._comment_with_suffix(
+                    phead, "CPMR1", catalog_comments.get("CPMR1")
+                ),
+            )
+            self._set_primary_value(
+                phead,
+                "CPMD1",
+                self.catalog_data["pmdec_arcsec_per_yr"],
+                self._comment_with_suffix(
+                    phead, "CPMD1", catalog_comments.get("CPMD1")
+                ),
+            )
+            self._set_primary_value(
+                phead,
+                "CZ1",
+                self.catalog_data["catalog_z"],
+                self._comment_with_suffix(phead, "CZ1", catalog_comments.get("CZ1")),
+            )
             self._set_primary_value(phead, "CCLRN1", self.catalog_data["color_name"])
             self._set_primary_value(phead, "CCLR1", self.catalog_data["color_value"])
+
+        if carmencita_data is not None:
+            aliases = carmencita_data.get("aliases")
+            if aliases not in ("", None, "UNKNOWN"):
+                self._set_primary_value(phead, "ALIASES", aliases)
 
         dq_keys = ("DQLVL0", "DQLVL1", "DQLVL2")
 
@@ -521,12 +585,124 @@ class CARMENESRV2(RV2):
         if comment is None:
             comment = content[1] if len(content) == 2 else ""
         phead[key] = (value, comment)
+
+    @staticmethod
+    def _comment_with_suffix(phead: OrderedDict, key: str, suffix) -> str | None:
+        """Return the current header comment with a catalog reference appended."""
+
+        if suffix is None or pd.isna(suffix):
+            return None
+
+        suffix = str(suffix).strip()
+        if suffix in ("", "UNKNOWN"):
+            return None
+
+        content = phead.get(key, "")
+        comment = content[1] if len(content) == 2 else ""
+        comment = "" if pd.isna(comment) else str(comment).strip()
+        if not comment:
+            return suffix
+        if suffix in comment.split():
+            return comment
+        return f"{comment} {suffix}"
     
     @staticmethod
     def _is_carmenes_id(object_id: str) -> bool:
         """Return True when an identifier looks like a CARMENES J-name."""
 
         return re.match(r"^J\S+", str(object_id).strip()) is not None
+
+    def carmencita_queryID(self, object_id: str) -> dict | None:
+        """
+        Resolve an identifier against the local Carmencita CSV subset.
+
+        The local table is keyed primarily by Karmn identifier.  If the input is
+        not a Karmn identifier, the object name column is tried as a fallback.
+        """
+
+        catalog_path = os.path.join(
+            os.path.dirname(__file__), "config", "carmencita_108_subset.csv"
+        )
+        if not os.path.exists(catalog_path):
+            warnings.warn(
+                f"Carmencita catalog file not found: {catalog_path}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return None
+
+        catalog = pd.read_csv(catalog_path)
+        lookup_id = str(object_id).strip()
+        if lookup_id.lower().startswith("karmn "):
+            lookup_id = lookup_id[6:].strip()
+
+        karmn_values = catalog["Karmn"].astype(str).str.strip()
+        match = catalog[karmn_values == lookup_id]
+        if match.empty:
+            name_values = catalog["Name"].astype(str).str.strip()
+            match = catalog[name_values == lookup_id]
+        if match.empty:
+            return None
+
+        row = match.iloc[0]
+        karmn = self._table_value(row, "Karmn")
+        name = self._table_value(row, "Name")
+        gaia_id = self._table_value(row, "Gaia_id")
+        gaia_dr3_id = None
+        if gaia_id is not None:
+            gaia_dr3_id = f"Gaia DR3 {int(gaia_id)}"
+
+        systemic_rv = self._table_value(row, "Vr_kms-1")
+        catalog_z = None
+        if systemic_rv is not None:
+            catalog_z = float(systemic_rv) / constants.c.to("km/s").value
+
+        bp_mag = self._table_value(row, "BP_mag")
+        rp_mag = self._table_value(row, "RP_mag")
+        color_value = None
+        if bp_mag is not None and rp_mag is not None:
+            color_value = float(bp_mag) - float(rp_mag)
+
+        pmra = self._table_value(row, "muRA_masa-1")
+        pmdec = self._table_value(row, "muDE_masa-1")
+        parallax = self._table_value(row, "pi_mas")
+        ref01 = self._table_value(row, "Ref01")
+        ref07 = self._table_value(row, "Ref07")
+        ref08 = self._table_value(row, "Ref08")
+        ref10 = self._table_value(row, "Ref10")
+
+        return {
+            "catalog_source": "Carmencita",
+            "catalog_identifier": str(karmn) if karmn is not None else lookup_id,
+            "aliases": str(name) if name is not None else None,
+            "comment_suffixes": {
+                "CRA1": ref01,
+                "CDEC1": ref01,
+                "CPMR1": ref07,
+                "CPMD1": ref07,
+                "CPLX1": ref08,
+                "CRV1": ref10,
+                "CZ1": ref10,
+            },
+            "gaia_dr3_id": gaia_dr3_id,
+            "ra_sexagesimal": self._table_value(row, "RA_J2000"),
+            "dec_sexagesimal": self._table_value(row, "DE_J2000"),
+            "equinox": 2000.0,
+            "epoch": 2000.0,
+            "systemic_rv_kms": (
+                float(systemic_rv) if systemic_rv is not None else None
+            ),
+            "parallax_mas": float(parallax) if parallax is not None else None,
+            "pmra_arcsec_per_yr": (
+                float(pmra) / 1000.0 if pmra is not None else None
+            ),
+            "pmdec_arcsec_per_yr": (
+                float(pmdec) / 1000.0 if pmdec is not None else None
+            ),
+            "catalog_z": catalog_z,
+            "color_name": "Gaia BP-RP",
+            "color_value": color_value,
+        }
 
     def simbad_queryID(self, object_id: str) -> dict | None:
         """
@@ -542,6 +718,8 @@ class CARMENESRV2(RV2):
         """
 
         try:
+            from astroquery.simbad import Simbad
+
             simbad_object_id = str(object_id).strip()
             if (
                 self._is_carmenes_id(simbad_object_id)
@@ -584,6 +762,8 @@ class CARMENESRV2(RV2):
                 color_value = float(bp_mag) - float(rp_mag)
 
             return {
+                "catalog_source": "Gaia DR3",
+                "catalog_identifier": gaia_dr3_id,
                 "gaia_dr3_id": gaia_dr3_id,
                 "ra_sexagesimal": self._ra_deg_to_sexagesimal(ra_deg),
                 "dec_sexagesimal": self._dec_deg_to_sexagesimal(dec_deg),
@@ -627,6 +807,8 @@ class CARMENESRV2(RV2):
 
         if not re.fullmatch(r"\d+", source_id):
             return None
+
+        from astroquery.gaia import Gaia
 
         query = f"""
             SELECT TOP 1
