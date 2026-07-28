@@ -30,11 +30,12 @@ class CARMENESRV2(RV2):
     """
     Read CARMENES data products and convert them into RVData Level 2 format.
 
-    This class is intentionally structured as a translator skeleton.  The
-    public entry point is :meth:`_read`, which is called by
-    ``RV2.from_fits(..., instrument="CARMENES")`` once the instrument is
-    registered.  Fill in the instrument-specific methods below as the native
-    CARMENES product layout is mapped onto the RVData L2 extensions.
+    The public entry point for native CARMENES files is
+    ``CARMENESRV2.from_fits(..., instrument="CARMENES")``.  Do not call
+    ``RV2.from_fits(..., instrument="CARMENES")`` for this translator: the
+    base-class dispatcher currently creates a plain ``RV2`` instance, while the
+    CARMENES translator relies on subclass-specific helper methods such as
+    ``_validate_input`` and ``_populate_primary_header``.
 
     Expected implementation areas
     -----------------------------
@@ -621,7 +622,7 @@ class CARMENESRV2(RV2):
         """
 
         catalog_path = os.path.join(
-            os.path.dirname(__file__), "config", "carmencita_108_subset.csv"
+            os.path.dirname(__file__), "catalogs", "carmencita_108_subset.csv"
         )
         if not os.path.exists(catalog_path):
             warnings.warn(

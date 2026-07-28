@@ -48,14 +48,14 @@ TBD
 
 * Fundamental Parameters
   * Trace 1: Science spectrum extracted from science fiber A. For the initial CARMENES translator this corresponds to the extracted target spectrum in the selected channel. The flux is FOX-extracted, and therefore already unblazed.
-  * VIS channel: The native `SUBSYS` keyword should identify VIS products. VIS files are translated into separate EPRV products from NIR files.
-  * NIR channel: The native `SUBSYS` keyword should identify NIR products. NIR files are translated into separate EPRV products from VIS files.
-  * Wavelength Solution: Native CARMENES wavelength solutions (2015A&A...581A.117B) are propagated to `TRACE1_WAVE` for the corresponding VIS or NIR channel. `TRACE1_WAVE` contains the wavelength solution for the extracted spectrum and is drift corrected, as long as the result from the drift measurement from the FP in fiber B is present in the primary fits header.
+  * VIS channel: The native ``SUBSYS`` keyword should identify VIS products. VIS files are translated into separate EPRV products from NIR files.
+  * NIR channel: The native ``SUBSYS`` keyword should identify NIR products. NIR files are translated into separate EPRV products from VIS files.
+  * Wavelength Solution: Native CARMENES wavelength solutions (2015A&A...581A.117B) are propagated to ``TRACE1_WAVE`` for the corresponding VIS or NIR channel. ``TRACE1_WAVE`` contains the wavelength solution for the extracted spectrum and is drift corrected, as long as the result from the drift measurement from the FP in fiber B is present in the primary fits header.
   * Extraction Type: FOX / CARACAL one-dimensional extraction.
-  * Number of Orders: `NUMORDER` and `ORDER_TABLE` are derived from the output trace wavelength array rather than hard-coded. Typically 61 for the VIS channel, and 28 for the NIR channel, respectively.
+  * Number of Orders: ``NUMORDER`` and ``ORDER_TABLE`` are derived from the output trace wavelength array rather than hard-coded. Typically 61 for the VIS channel, and 28 for the NIR channel, respectively.
 
 * Corrections and Models
-  * Barycentric Correction: Native CARMENES headers contain barycentric information, including BERV-like values from CARACAL. `BARYCORR_KMS`, `BARYCORR_Z`, and `BJD_TDB` are consistently provided as one value for the whole spectrum.
+  * Barycentric Correction: Native CARMENES headers contain barycentric information, including BERV-like values from CARACAL. ``BARYCORR_KMS``, ``BARYCORR_Z``, and ``BJD_TDB`` are consistently provided as one value for the whole spectrum.
   * Drift Correction: CARMENES uses Fabry-Pérot etalons in fiber B for drift monitoring. The TRACE1_WAVE wavelenths are already drift corrected.
   * Telluric Model: TBD.
   * Sky Model: TBD.
@@ -93,5 +93,6 @@ before combining VIS and NIR data.
 * ``l1_file`` is supposed to be an extracted CARMENES fiber A file (``*_A.fits``).
 * ``fiber_b_file`` is the optional corresponding fiber B file (``*_B.fits``).
 * ``raw_image_file`` is the optional corresponding raw file (``*.fits``).
-* ``carmencita_query`` is ``True`` by default and pulls stellar information from the local Carmencita catalog in the config directory.
+* files for testing can be found in ../instruments/carmenes/reference_files directory
+* ``carmencita_query`` is ``True`` by default and pulls stellar information from the local Carmencita catalog in the ``catalogs`` directory.
 * ``query_catalog`` is ``False`` by default and pulls stellar information from Gaia DR3 if the identifier can be resolved by a SIMBAD query.
