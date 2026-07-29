@@ -82,7 +82,6 @@ class CARMENESRV2(RV2):
             Reserved for auxiliary files or conversion options.
         """
 
-
         self._validate_input(hdul1, **kwargs)
         self._populate_instrument_header(hdul1)
         self._populate_trace_extensions(hdul1, **kwargs)
@@ -102,21 +101,21 @@ class CARMENESRV2(RV2):
 
         if "PRIMARY" not in hdul1:
             raise ValueError("CARMENES input must contain a PRIMARY HDU.")
-        
+
         self.channel = str(hdul1["PRIMARY"].header.get("SUBSYS", "")).lower()
         if self.channel not in ("vis", "nir"):
-            raise ValueError("CARMENES channel must be either 'vis' or 'nir'; "
+            raise ValueError(
+                "CARMENES channel must be either 'vis' or 'nir'; "
                 f"got {self.channel!r}.")
-        
+
         # One should probably provide here the info on, which fiber is being provided (A or B, sci or cal)
         # for now fiber A (sci)
         self.trace_type = 'sci'
-        
 
     def _populate_instrument_header(self, hdul1: fits.HDUList) -> None:
         """Store the native primary header as ``INSTRUMENT_HEADER``."""
 
-        #self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
+        # self.set_header("INSTRUMENT_HEADER", OrderedDict(hdul1["PRIMARY"].header))
         self.set_header("INSTRUMENT_HEADER", hdul1["PRIMARY"].header.copy())
 
     def _populate_trace_extensions(self, hdul1: fits.HDUList, **kwargs) -> None:
@@ -212,7 +211,7 @@ class CARMENESRV2(RV2):
 
             return {
                 "SNR_PER_PIXEL": snr,
-                "SQRT_REDUCED_CHI2": rchi, # maybe np.sqrt(rchi)---ask Mathias!!!
+                "SQRT_REDUCED_CHI2": rchi,  # maybe np.sqrt(rchi)---ask Mathias!!!
             }
         elif self.channel == "nir":
             rchi_l = np.array(
@@ -224,7 +223,7 @@ class CARMENESRV2(RV2):
             )
             rchi_r = np.array(
                 [
-                    header[f"HIERARCH CARACAL FOX RCHI {2 * order_index +1}"]
+                    header[f"HIERARCH CARACAL FOX RCHI {2 * order_index + 1}"]
                     for order_index in range(n_orders)
                 ],
                 dtype=float,
@@ -238,7 +237,7 @@ class CARMENESRV2(RV2):
             )
             snr_r = np.array(
                 [
-                    header[f"HIERARCH CARACAL FOX SNR {2 * order_index +1}"]
+                    header[f"HIERARCH CARACAL FOX SNR {2 * order_index + 1}"]
                     for order_index in range(n_orders)
                 ],
                 dtype=float,
@@ -247,8 +246,8 @@ class CARMENESRV2(RV2):
             return {
                 "SNR_PER_PIXEL_LEFT": snr_l,
                 "SNR_PER_PIXEL_RIGHT": snr_r,
-                "SQRT_REDUCED_CHI2_LEFT": rchi_l, # maybe np.sqrt(rchi)---ask Mathias!!!
-                "SQRT_REDUCED_CHI2_RIGHT": rchi_r, # maybe np.sqrt(rchi)---ask Mathias!!!
+                "SQRT_REDUCED_CHI2_LEFT": rchi_l,  # maybe np.sqrt(rchi)---ask Mathias!!!
+                "SQRT_REDUCED_CHI2_RIGHT": rchi_r,  # maybe np.sqrt(rchi)---ask Mathias!!!
             }
 
     def _populate_barycentric_extensions(
@@ -257,7 +256,7 @@ class CARMENESRV2(RV2):
         """Populate barycentric correction and BJD extensions."""
 
         berv_kms = hdul1["PRIMARY"].header["HIERARCH CARACAL BERV"]
-        bjd_tdb = hdul1["PRIMARY"].header["HIERARCH CARACAL BJD"] + 2400000. # or whatever the real key is
+        bjd_tdb = hdul1["PRIMARY"].header["HIERARCH CARACAL BJD"] + 2400000.  # or whatever the real key is
 
         self.set_data("BARYCORR_KMS", np.array([berv_kms], dtype=float))
         self.set_data(
@@ -401,12 +400,11 @@ class CARMENESRV2(RV2):
 
             phead[skey] = (value if pd.notnull(value) else None, description)
 
-
         # set header keywords here
 
         utc_from_jd = Time(ihead["HIERARCH CARACAL UTC"], format="jd", scale="utc")
         self._set_primary_value(phead, "DATE", utc_from_jd.isot)
-        jd_start = ihead["MJD-OBS"] +  2400000.5
+        jd_start = ihead["MJD-OBS"] + 2400000.5
         self._set_primary_value(phead, "JD_UTC", jd_start)
 
         # INSTERA can be used to track changes to the instrument (maybe in NIR useful?)
@@ -555,11 +553,10 @@ class CARMENESRV2(RV2):
                 self._dec_deg_to_sexagesimal(ihead["HIERARCH CAHA TEL POS SET DEC"]),
             )
 
-
         # if fiber B is extracted, the extracted flux will be blazed; then we need to change it here
 
         self.set_header("PRIMARY", phead)
-    
+
     @staticmethod
     def _plain_value(value):
         """Return the scalar value from a FITS-style (value, comment) tuple."""
@@ -606,7 +603,7 @@ class CARMENESRV2(RV2):
         if suffix in comment.split():
             return comment
         return f"{comment} {suffix}"
-    
+
     @staticmethod
     def _is_carmenes_id(object_id: str) -> bool:
         """Return True when an identifier looks like a CARMENES J-name."""
@@ -915,16 +912,12 @@ class CARMENESRV2(RV2):
         }
         """
 
-
         return {
             "flux": "SPEC",
             "wave": "WAVE",
             "var": "SIG",
             "blaze": None,
         }
-
-
-        
 
     def _echelle_orders(self, wavelengths: np.ndarray) -> np.ndarray:
         """Return physical echelle orders for the wavelength array rows."""
